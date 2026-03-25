@@ -749,6 +749,9 @@
       if (action === 'restart') {
         if (!confirm('Restart the gateway? Active sessions may be interrupted.')) return;
       }
+      if (action === 'doctor') {
+        if (!confirm('Run doctor --fix? This may restart the gateway.')) return;
+      }
       const btn = el(action === 'restart' ? 'btnRestart' : 'btnDoctor');
       const output = el('actionOutput');
       btn.disabled = true;
