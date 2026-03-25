@@ -77,6 +77,12 @@ function runCommand(file, args, timeout = 3000) {
 // Version — read from openclaw's package.json (instant, no subprocess)
 // ---------------------------------------------------------------------------
 function getOpenClawVersion() {
+  // Try npm-global path (common on Linux with custom npm prefix)
+  const npmGlobalPath = path.join(os.homedir(), '.npm-global', 'lib', 'node_modules', 'openclaw', 'package.json');
+  if (existsSync(npmGlobalPath)) {
+    const pkg = parseJsonSafe(readFileSafe(npmGlobalPath), null);
+    if (pkg?.version) return pkg.version;
+  }
   // Try known nvm paths
   const nvmDir = path.join(os.homedir(), '.nvm', 'versions', 'node');
   try {
@@ -89,7 +95,7 @@ function getOpenClawVersion() {
       }
     }
   } catch {}
-  // Try global
+  // Try global require resolution
   try {
     const globalPkg = require.resolve('openclaw/package.json');
     const pkg = parseJsonSafe(readFileSafe(globalPkg), null);
@@ -173,7 +179,9 @@ async function getGatewayUptime() {
 // Sessions — read sessions.json directly (instant, no CLI)
 // ---------------------------------------------------------------------------
 function getSessionData() {
-  const sessionsPath = path.join(OPENCLAW_STATE, 'agents', 'default', 'sessions', 'sessions.json');
+  // Try 'main' first (default agent name), fall back to 'default'
+  let sessionsPath = path.join(OPENCLAW_STATE, 'agents', 'main', 'sessions', 'sessions.json');
+  if (!existsSync(sessionsPath)) sessionsPath = path.join(OPENCLAW_STATE, 'agents', 'default', 'sessions', 'sessions.json');
   const raw = parseJsonSafe(readFileSafe(sessionsPath), null);
   if (!raw) return { count: 0, model: 'unknown', sessions: [] };
 
