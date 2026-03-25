@@ -179,10 +179,20 @@ async function getGatewayUptime() {
 // Sessions — read sessions.json directly (instant, no CLI)
 // ---------------------------------------------------------------------------
 function getSessionData() {
-  // Try 'main' first (default agent name), fall back to 'default'
-  let sessionsPath = path.join(OPENCLAW_STATE, 'agents', 'main', 'sessions', 'sessions.json');
-  if (!existsSync(sessionsPath)) sessionsPath = path.join(OPENCLAW_STATE, 'agents', 'default', 'sessions', 'sessions.json');
-  const raw = parseJsonSafe(readFileSafe(sessionsPath), null);
+  // Find the agent with the most sessions
+  const agentsDir = path.join(OPENCLAW_STATE, 'agents');
+  let bestPath = null, bestCount = 0;
+  try {
+    for (const agent of readdirSync(agentsDir)) {
+      const sp = path.join(agentsDir, agent, 'sessions', 'sessions.json');
+      if (!existsSync(sp)) continue;
+      const raw = parseJsonSafe(readFileSafe(sp), null);
+      const count = raw && typeof raw === 'object' ? Object.keys(raw).length : 0;
+      if (count > bestCount) { bestPath = sp; bestCount = count; }
+    }
+  } catch {}
+  if (!bestPath) return { count: 0, model: 'unknown', sessions: [] };
+  const raw = parseJsonSafe(readFileSafe(bestPath), null);
   if (!raw) return { count: 0, model: 'unknown', sessions: [] };
 
   // sessions.json is a flat object keyed by session key
