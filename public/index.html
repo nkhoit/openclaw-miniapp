@@ -429,13 +429,6 @@
 
     <div id="cardsContainer"></div>
 
-    <section id="contextSection" class="card" style="display:none">
-      <h2>Current Context</h2>
-      <div id="contextCard" class="markdown">
-        <div class="line muted">Loading NOW.md…</div>
-      </div>
-    </section>
-
     <section id="cronSection" class="card" style="display:none">
       <h2>Up Next <span style="font-size:11px;font-weight:400;color:var(--hint)">(next 5 cron jobs)</span></h2>
       <div id="cronList" class="activity-list"></div>
@@ -483,16 +476,11 @@
         .replace(/'/g, '&#39;');
     }
 
-        function renderMarkdown(source, container) {
-      if (!container) container = el('contextCard');
-      const section = el('contextSection');
-      if (!source || source === 'NOW.md not found.') {
-        if (section) section.style.display = 'none';
-        return;
-      }
-      if (section) section.style.display = '';
-      const raw = String(source || '').trim();
-      if (!raw) { container.innerHTML = '<div class="muted">NOW.md is empty.</div>'; return; }
+            function renderMarkdown(source, container) {
+      if (!container) return;
+      if (!source) { container.innerHTML = ''; return; }
+      const raw = String(source).trim();
+      if (!raw) { container.innerHTML = '<div class="muted">Empty.</div>'; return; }
 
       const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const inline = s => esc(s)
