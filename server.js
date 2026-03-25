@@ -551,6 +551,14 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/status') {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
+      if (req.method === 'POST' && pathname === '/api/action/restart') {
+        const result = await runCommand('/bin/sh', ['-c', 'pkill -f openclaw-gateway; sleep 1; nohup /home/spock/.npm-global/bin/openclaw gateway run > /tmp/openclaw-gateway.log 2>&1 & echo "Gateway restarting (pid $!)"'], 5000);
+        return sendJson(res, 200, { output: result.stdout + result.stderr });
+      }
+      if (req.method === 'POST' && pathname === '/api/action/doctor') {
+        const result = await runCommand('/bin/sh', ['-c', '/home/spock/.npm-global/bin/openclaw status 2>&1 | head -40'], 15000);
+        return sendJson(res, 200, { output: result.stdout + result.stderr });
+      }
       if (req.method === 'GET' && pathname === '/api/cron') return sendJson(res, 200, getCronJobs());
       if (req.method === 'GET' && pathname === '/api/cards') return sendJson(res, 200, getCards());
       if (req.method === 'GET' && pathname === '/api/context') return sendJson(res, 200, getContext());
