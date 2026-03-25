@@ -174,29 +174,13 @@ function formatSeconds(secs) {
 }
 
 async function getGatewayUptime() {
-  // Find openclaw-gateway process directly by name
-  const find = await runCommand('/bin/sh', ['-c', "pgrep -x openclaw-gateway || pgrep -f openclaw-gateway"], 2000);
+  // Universal: find gateway process via pgrep, get elapsed time
+  const find = await runCommand('/bin/sh', ['-c', "pgrep -f 'openclaw.*gateway' | head -1"], 2000);
   const pid = find.stdout.trim().split('\n')[0];
   if (pid && /^\d+$/.test(pid)) {
     const ps = await runCommand('ps', ['-p', pid, '-o', 'etime='], 2000);
     const etime = ps.stdout.trim();
     if (etime) return formatEtime(etime);
-  }
-  // macOS: launchctl fallback
-  const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/ai\\.openclaw\\.gateway/ {print $1}'"], 2000);
-  const lcPid = lc.stdout.trim();
-  if (lcPid && /^\d+$/.test(lcPid)) {
-    const ps = await runCommand('ps', ['-p', lcPid, '-o', 'etime='], 2000);
-    const etime = ps.stdout.trim();
-    if (etime) return formatEtime(etime);
-  }
-  // Linux: systemctl fallback
-  const sc = await runCommand('/bin/sh', ['-c', "systemctl show openclaw --property=ActiveEnterTimestamp --value 2>/dev/null"], 2000);
-  if (sc.ok && sc.stdout.trim()) {
-    const started = new Date(sc.stdout.trim());
-    if (!isNaN(started)) {
-      return formatSeconds(Math.floor((Date.now() - started.getTime()) / 1000));
-    }
   }
   return null;
 }
@@ -582,16 +566,14 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
       if (req.method === 'POST' && pathname === '/api/action/restart') {
-        const cmds = os.platform() === 'darwin'
-          ? [`launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1`]
-          : [`systemctl --user restart openclaw 2>&1`, `sudo systemctl restart openclaw 2>&1`];
-        let ok = false, output = '';
-        for (const cmd of cmds) {
-          const result = await runCommand('/bin/sh', ['-c', cmd], 5000);
-          if (result.ok) { ok = true; output = 'Gateway restarted.'; break; }
-          output = result.stderr || result.error || '';
-        }
-        return sendJson(res, 200, { ok, output });
+        const cmd = os.platform() === 'darwin'
+          ? 'launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1'
+          : 'systemctl --user restart openclaw 2>&1';
+        const result = await runCommand('/bin/sh', ['-c', cmd], 5000);
+        return sendJson(res, 200, {
+          ok: result.ok,
+          output: result.ok ? 'Gateway restarted.' : (result.stderr || result.error || 'Restart failed.'),
+        });
       }
       if (req.method === 'POST' && pathname === '/api/action/doctor') {
         const result = await runCommand(OPENCLAW_BIN, ['doctor', '--fix', '--non-interactive'], 30000);
