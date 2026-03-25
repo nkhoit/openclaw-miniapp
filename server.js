@@ -65,9 +65,13 @@ function formatBytes(bytes) {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+// Ensure nvm node is in PATH for child processes (LaunchAgent has minimal PATH)
+const NODE_DIR = path.dirname(process.execPath);
+const CHILD_ENV = { ...process.env, PATH: `${NODE_DIR}:${process.env.PATH || '/usr/bin:/bin'}` };
+
 function runCommand(file, args, timeout = 3000) {
   return new Promise(resolve => {
-    execFile(file, args, { timeout, encoding: 'utf8', maxBuffer: 512 * 1024 }, (error, stdout, stderr) => {
+    execFile(file, args, { timeout, encoding: 'utf8', maxBuffer: 512 * 1024, env: CHILD_ENV }, (error, stdout, stderr) => {
       resolve({ ok: !error, error: error?.message || null, stdout: stdout || '', stderr: stderr || '' });
     });
   });
@@ -105,6 +109,20 @@ function getOpenClawVersion() {
 }
 
 const OPENCLAW_VERSION = getOpenClawVersion();
+
+// Resolve openclaw binary path for action endpoints (doctor, etc.)
+const OPENCLAW_BIN = (() => {
+  const npmGlobal = path.join(os.homedir(), '.npm-global', 'bin', 'openclaw');
+  if (existsSync(npmGlobal)) return npmGlobal;
+  const nvmDir = path.join(os.homedir(), '.nvm', 'versions', 'node');
+  try {
+    for (const v of readdirSync(nvmDir).sort().reverse()) {
+      const bin = path.join(nvmDir, v, 'bin', 'openclaw');
+      if (existsSync(bin)) return bin;
+    }
+  } catch {}
+  return 'openclaw';
+})();
 
 // ---------------------------------------------------------------------------
 // Gateway health — quick HTTP ping (no CLI)
@@ -568,7 +586,6 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'POST' && pathname === '/api/action/doctor') {
         const result = await runCommand(OPENCLAW_BIN, ['doctor', '--fix', '--non-interactive'], 30000);
-        // Strip ANSI escape codes for clean display
         const clean = (result.stdout + '\n' + result.stderr).replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
         return sendJson(res, 200, { ok: result.ok, output: clean });
       }
@@ -579,6 +596,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/dashboard') return sendJson(res, 200, await getDashboard());
       return sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
+      console.error('API error:', pathname, error);
       return sendJson(res, 500, { error: 'Internal server error', detail: error?.message || String(error) });
     }
   }
