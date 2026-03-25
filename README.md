@@ -56,10 +56,17 @@ For persistence, run as a systemd service (Linux) or launchd agent (macOS).
 
 Telegram requires HTTPS for Mini Apps. Pick one:
 
-**Tailscale Funnel** (simplest):
+**Tailscale Serve** (recommended — tailnet-only, no public exposure):
+```bash
+tailscale serve --set-path /dashboard/ 3001
+```
+Only devices on your Tailscale network can reach it. Since the Telegram Mini App loads in your phone's webview (not on Telegram's servers), this works as long as your phone has Tailscale installed. Best option for personal use — zero public attack surface.
+
+**Tailscale Funnel** (public internet):
 ```bash
 tailscale funnel --set-path /dashboard/ 3001
 ```
+Exposes the dashboard to the public internet via Tailscale's edge. Use this if you need access from devices not on your tailnet.
 
 **Cloudflare Tunnel**:
 ```bash
