@@ -746,11 +746,14 @@
     }
 
     async function runAction(action) {
+      if (action === 'restart') {
+        if (!confirm('Restart the gateway? Active sessions may be interrupted.')) return;
+      }
       const btn = el(action === 'restart' ? 'btnRestart' : 'btnDoctor');
       const output = el('actionOutput');
       btn.disabled = true;
       output.style.display = '';
-      output.textContent = action === 'restart' ? 'Restarting gateway…' : 'Running doctor…';
+      output.textContent = action === 'restart' ? 'Restarting gateway…' : 'Running doctor --fix…';
       try {
         const initData = tg && tg.initData ? tg.initData : '';
         const res = await fetch('api/action/' + action, {
