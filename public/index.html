@@ -342,12 +342,7 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>Current Context</h2>
-      <div id="contextCard" class="markdown">
-        <div class="line muted">Loading NOW.md…</div>
-      </div>
-    </section>
+    <div id="cardsContainer"></div>
 
     <section class="card">
       <h2>Recent Activity</h2>
@@ -391,8 +386,7 @@
         .replace(/'/g, '&#39;');
     }
 
-        function renderMarkdown(source) {
-      const container = el('contextCard');
+        function renderMarkdown(container, source) {
       const raw = String(source || '').trim();
       if (!raw) { container.innerHTML = '<div class="muted">NOW.md is empty.</div>'; return; }
 
@@ -439,6 +433,22 @@
       if (inList) html += '</ul>';
       container.innerHTML = html;
     }
+
+    function renderCards(cards) {
+      const container = el('cardsContainer');
+      if (!Array.isArray(cards) || cards.length === 0) {
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = cards.map((card, i) => 
+        `<section class="card"><h2>${esc(card.name)}</h2><div class="markdown" id="card-md-${i}"></div></section>`
+      ).join('');
+      cards.forEach((card, i) => {
+        renderMarkdown(document.getElementById(`card-md-${i}`), card.content);
+      });
+    }
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
     function renderActivity(messages) {
       const container = el('activityList');
@@ -554,7 +564,7 @@
 
         applyHeader(payload.status, tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null);
         applySystem(payload.system);
-        renderMarkdown(payload.context && payload.context.nowMd);
+        renderCards(payload.cards || []);
         renderActivity(payload.activity && payload.activity.messages);
         text('activityError', payload.activity && payload.activity.error ? payload.activity.error : '', true);
         updateFooter(payload.generatedAt);

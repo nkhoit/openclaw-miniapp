@@ -310,11 +310,18 @@ function getIdentity() {
 }
 
 // ---------------------------------------------------------------------------
-// Context — read NOW.md
+// Workspace cards — configurable via CARDS env var (comma-separated filenames)
 // ---------------------------------------------------------------------------
-function getContext() {
-  const nowPath = path.join(WORKSPACE, 'NOW.md');
-  return { workspace: WORKSPACE, nowPath, nowMd: readFileSafe(nowPath, 'NOW.md not found.') };
+const CARD_FILES = String(process.env.CARDS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function getCards() {
+  return CARD_FILES.map(file => {
+    const filePath = path.join(WORKSPACE, file);
+    const content = readFileSafe(filePath, '');
+    const name = path.basename(file, path.extname(file));
+    return { file, name, content: content || null };
+  }).filter(c => c.content !== null);
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +382,7 @@ async function getDashboard() {
     generatedAt: new Date().toISOString(),
     status,
     system,
-    context: getContext(),
+    cards: getCards(),
     activity: getRecentActivity(),
     usage: getUsage(),
   };
@@ -426,7 +433,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/status') {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
-      if (req.method === 'GET' && pathname === '/api/context') return sendJson(res, 200, getContext());
+      if (req.method === 'GET' && pathname === '/api/cards') return sendJson(res, 200, getCards());
       if (req.method === 'GET' && pathname === '/api/activity') return sendJson(res, 200, getRecentActivity());
       if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, getUsage());
       if (req.method === 'GET' && pathname === '/api/dashboard') return sendJson(res, 200, await getDashboard());
