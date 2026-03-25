@@ -151,7 +151,7 @@ function formatSeconds(secs) {
 
 async function getGatewayUptime() {
   // macOS: launchctl
-  const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/openclaw/ {print $1}'"], 2000);
+  const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/ai\\.openclaw\\.gateway/ {print $1}'"], 2000);
   const pid = lc.stdout.trim();
   if (pid && /^\d+$/.test(pid)) {
     const ps = await runCommand('/bin/ps', ['-p', pid, '-o', 'etime='], 2000);
