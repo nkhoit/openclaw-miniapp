@@ -35,7 +35,7 @@ loadEnv();
 
 const PORT = Number(process.env.PORT || 3001);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
-const WORKSPACE = process.env.WORKSPACE || path.join(os.homedir(), '.openclaw', 'workspace-main');
+const WORKSPACE = process.env.WORKSPACE || path.join(os.homedir(), '.openclaw', 'workspace');
 const OPENCLAW_STATE = process.env.OPENCLAW_STATE || path.join(os.homedir(), '.openclaw');
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:18789';
 const ALLOWED_USER_IDS = String(process.env.ALLOWED_USER_IDS || '')
@@ -178,7 +178,7 @@ async function getGatewayUptime() {
   const find = await runCommand('/bin/sh', ['-c', "pgrep -x openclaw-gateway || pgrep -f openclaw-gateway"], 2000);
   const pid = find.stdout.trim().split('\n')[0];
   if (pid && /^\d+$/.test(pid)) {
-    const ps = await runCommand('/bin/ps', ['-p', pid, '-o', 'etime='], 2000);
+    const ps = await runCommand('ps', ['-p', pid, '-o', 'etime='], 2000);
     const etime = ps.stdout.trim();
     if (etime) return formatEtime(etime);
   }
@@ -186,7 +186,7 @@ async function getGatewayUptime() {
   const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/ai\\.openclaw\\.gateway/ {print $1}'"], 2000);
   const lcPid = lc.stdout.trim();
   if (lcPid && /^\d+$/.test(lcPid)) {
-    const ps = await runCommand('/bin/ps', ['-p', lcPid, '-o', 'etime='], 2000);
+    const ps = await runCommand('ps', ['-p', lcPid, '-o', 'etime='], 2000);
     const etime = ps.stdout.trim();
     if (etime) return formatEtime(etime);
   }
@@ -267,19 +267,31 @@ async function getOpenClawStatus() {
 // System stats
 // ---------------------------------------------------------------------------
 async function getCpuUsagePercent() {
-  // macOS: use top snapshot for accurate current usage
-  const result = await runCommand('/usr/bin/top', ['-l', '1', '-n', '0'], 5000);
-  if (result.ok) {
-    const match = result.stdout.match(/CPU usage:\s+([\d.]+)%\s+user,\s+([\d.]+)%\s+sys/);
-    if (match) return Math.min(parseFloat(match[1]) + parseFloat(match[2]), 100);
+  if (os.platform() === 'darwin') {
+    // macOS: top snapshot for accurate current usage
+    const result = await runCommand('/usr/bin/top', ['-l', '1', '-n', '0'], 5000);
+    if (result.ok) {
+      const match = result.stdout.match(/CPU usage:\s+([\d.]+)%\s+user,\s+([\d.]+)%\s+sys/);
+      if (match) return Math.min(parseFloat(match[1]) + parseFloat(match[2]), 100);
+    }
+  } else {
+    // Linux: read /proc/stat (two samples 500ms apart for delta)
+    try {
+      const read = () => fs.readFileSync('/proc/stat', 'utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number);
+      const a = read();
+      await new Promise(r => setTimeout(r, 500));
+      const b = read();
+      const idle = b[3] - a[3], total = b.reduce((s, v, i) => s + v - a[i], 0);
+      if (total > 0) return Math.min(((total - idle) / total) * 100, 100);
+    } catch {}
   }
   // Fallback: load average
   const load = os.loadavg()[0] || 0;
-  return Math.max(0, Math.min((load / os.cpus().length) * 100, 100));
+  return Math.max(0, Math.min((load / (os.cpus().length || 1)) * 100, 100));
 }
 
 async function getDiskStats() {
-  const result = await runCommand('/bin/df', ['-k', WORKSPACE], 2000);
+  const result = await runCommand('df', ['-k', WORKSPACE], 2000);
   if (!result.ok) return { totalBytes: null, usedBytes: null, freeBytes: null, usedPercent: null, mount: '/', error: result.error };
   const lines = result.stdout.trim().split(/\r?\n/).filter(Boolean);
   const parts = (lines[lines.length - 1] || '').split(/\s+/);
@@ -570,12 +582,9 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
       if (req.method === 'POST' && pathname === '/api/action/restart') {
-        // Platform-aware restart via service manager
-        const cmds = [
-          `launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1`,
-          `systemctl --user restart openclaw 2>&1`,
-          `sudo systemctl restart openclaw 2>&1`,
-        ];
+        const cmds = os.platform() === 'darwin'
+          ? [`launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1`]
+          : [`systemctl --user restart openclaw 2>&1`, `sudo systemctl restart openclaw 2>&1`];
         let ok = false, output = '';
         for (const cmd of cmds) {
           const result = await runCommand('/bin/sh', ['-c', cmd], 5000);
