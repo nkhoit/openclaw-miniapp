@@ -121,6 +121,34 @@ async function checkGatewayHealth() {
 // ---------------------------------------------------------------------------
 // Gateway uptime — from launchctl/systemctl PID → ps etime
 // ---------------------------------------------------------------------------
+// Parse ps etime format (MM:SS, HH:MM:SS, or DD-HH:MM:SS) into human-readable
+function formatEtime(etime) {
+  const dayMatch = etime.match(/^(\d+)-(\d+):(\d+):(\d+)$/);
+  if (dayMatch) {
+    const [, d, h, m] = dayMatch.map(Number);
+    return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+  }
+  const parts = etime.trim().split(':').map(Number);
+  if (parts.length === 3) {
+    const [h, m] = parts;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+  if (parts.length === 2) {
+    const [m, s] = parts;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+  return etime;
+}
+
+function formatSeconds(secs) {
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 async function getGatewayUptime() {
   // macOS: launchctl
   const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/openclaw/ {print $1}'"], 2000);
@@ -128,17 +156,14 @@ async function getGatewayUptime() {
   if (pid && /^\d+$/.test(pid)) {
     const ps = await runCommand('/bin/ps', ['-p', pid, '-o', 'etime='], 2000);
     const etime = ps.stdout.trim();
-    if (etime) return etime;
+    if (etime) return formatEtime(etime);
   }
   // Linux: systemctl
   const sc = await runCommand('/bin/sh', ['-c', "systemctl show openclaw --property=ActiveEnterTimestamp --value 2>/dev/null"], 2000);
   if (sc.ok && sc.stdout.trim()) {
     const started = new Date(sc.stdout.trim());
     if (!isNaN(started)) {
-      const secs = Math.floor((Date.now() - started.getTime()) / 1000);
-      const h = Math.floor(secs / 3600);
-      const m = Math.floor((secs % 3600) / 60);
-      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+      return formatSeconds(Math.floor((Date.now() - started.getTime()) / 1000));
     }
   }
   return null;
@@ -180,6 +205,7 @@ async function getOpenClawStatus() {
     getGatewayUptime(),
   ]);
   const sessionData = getSessionData();
+  const identity = getIdentity();
 
   return {
     ok: true,
@@ -188,6 +214,7 @@ async function getOpenClawStatus() {
     model: sessionData.model,
     uptime: uptime || null,
     activeSessions: sessionData.count,
+    identity,
     error: null,
   };
 }
@@ -220,9 +247,38 @@ async function getDiskStats() {
   };
 }
 
+async function getGpuStats() {
+  // NVIDIA
+  const nv = await runCommand('nvidia-smi', [
+    '--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu',
+    '--format=csv,noheader,nounits'
+  ], 3000);
+  if (nv.ok) {
+    const gpus = nv.stdout.trim().split('\n').map(line => {
+      const [name, memUsed, memTotal, utilization, temp] = line.split(',').map(s => s.trim());
+      return {
+        name,
+        memUsed: Number(memUsed), memTotal: Number(memTotal),
+        memUsedFormatted: formatBytes(Number(memUsed) * 1024 * 1024),
+        memTotalFormatted: formatBytes(Number(memTotal) * 1024 * 1024),
+        memPercent: Number(memTotal) > 0 ? Math.round((Number(memUsed) / Number(memTotal)) * 100) : null,
+        utilization: Number(utilization),
+        tempC: Number(temp),
+      };
+    });
+    return { available: true, provider: 'nvidia', gpus };
+  }
+  // AMD ROCm
+  const amd = await runCommand('rocm-smi', ['--showmeminfo', 'vram', '--csv'], 3000);
+  if (amd.ok && amd.stdout.includes('vram')) {
+    return { available: true, provider: 'amd', raw: amd.stdout.trim() };
+  }
+  return { available: false };
+}
+
 async function getSystemStats() {
   const totalMem = os.totalmem(), freeMem = os.freemem(), usedMem = totalMem - freeMem;
-  const [cpuPercent, disk] = await Promise.all([getCpuUsagePercent(), getDiskStats()]);
+  const [cpuPercent, disk, gpu] = await Promise.all([getCpuUsagePercent(), getDiskStats(), getGpuStats()]);
   return {
     hostname: os.hostname(),
     platform: `${os.type()} ${os.release()}`,
@@ -235,7 +291,22 @@ async function getSystemStats() {
       total: formatBytes(totalMem), used: formatBytes(usedMem), free: formatBytes(freeMem),
     },
     disk: { ...disk, total: formatBytes(disk.totalBytes), used: formatBytes(disk.usedBytes), free: formatBytes(disk.freeBytes) },
+    gpu,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Identity — read IDENTITY.md for agent name and emoji
+// ---------------------------------------------------------------------------
+function getIdentity() {
+  const idPath = path.join(WORKSPACE, 'IDENTITY.md');
+  const content = readFileSafe(idPath, '');
+  if (!content) return { name: 'OpenClaw', emoji: null };
+  const nameMatch = content.match(/\*\*Name:\*\*\s*(.+)/);
+  const emojiMatch = content.match(/\*\*Emoji:\*\*\s*(.+)/);
+  const name = nameMatch ? nameMatch[1].trim() : 'OpenClaw';
+  const emoji = emojiMatch ? emojiMatch[1].trim().replace(/—/, '').trim() || null : null;
+  return { name, emoji };
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +403,18 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && pathname === '/') {
     return sendHtml(res, 200, readFileSafe(INDEX_FILE, '<h1>index.html not found</h1>'));
+  }
+
+  // Serve static files from public/
+  if (req.method === 'GET' && !pathname.startsWith('/api/') && pathname !== '/healthz') {
+    const safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
+    const filePath = path.join(PUBLIC_DIR, safePath);
+    if (filePath.startsWith(PUBLIC_DIR) && existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+      res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=3600' });
+      return fs.createReadStream(filePath).pipe(res);
+    }
   }
   if (req.method === 'GET' && pathname === '/healthz') {
     return sendJson(res, 200, { ok: true, time: new Date().toISOString() });
