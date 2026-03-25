@@ -150,15 +150,23 @@ function formatSeconds(secs) {
 }
 
 async function getGatewayUptime() {
-  // macOS: launchctl
-  const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/ai\\.openclaw\\.gateway/ {print $1}'"], 2000);
-  const pid = lc.stdout.trim();
+  // Find openclaw-gateway process directly by name
+  const find = await runCommand('/bin/sh', ['-c', "pgrep -x openclaw-gateway || pgrep -f openclaw-gateway"], 2000);
+  const pid = find.stdout.trim().split('\n')[0];
   if (pid && /^\d+$/.test(pid)) {
     const ps = await runCommand('/bin/ps', ['-p', pid, '-o', 'etime='], 2000);
     const etime = ps.stdout.trim();
     if (etime) return formatEtime(etime);
   }
-  // Linux: systemctl
+  // macOS: launchctl fallback
+  const lc = await runCommand('/bin/sh', ['-c', "launchctl list 2>/dev/null | awk '/ai\\.openclaw\\.gateway/ {print $1}'"], 2000);
+  const lcPid = lc.stdout.trim();
+  if (lcPid && /^\d+$/.test(lcPid)) {
+    const ps = await runCommand('/bin/ps', ['-p', lcPid, '-o', 'etime='], 2000);
+    const etime = ps.stdout.trim();
+    if (etime) return formatEtime(etime);
+  }
+  // Linux: systemctl fallback
   const sc = await runCommand('/bin/sh', ['-c', "systemctl show openclaw --property=ActiveEnterTimestamp --value 2>/dev/null"], 2000);
   if (sc.ok && sc.stdout.trim()) {
     const started = new Date(sc.stdout.trim());
@@ -367,6 +375,97 @@ function getUsage() {
 }
 
 // ---------------------------------------------------------------------------
+// Cron expression → human readable
+// ---------------------------------------------------------------------------
+function cronToHuman(expr, tz) {
+  if (!expr) return expr || '';
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 5) return expr;
+  const [min, hr, dom, mon, dow] = parts;
+
+  const pad = n => String(n).padStart(2, '0');
+  const fmtTime = (h, m) => {
+    const hour = Number(h), minute = Number(m);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const h12 = hour % 12 || 12;
+    return `${h12}:${pad(minute)} ${ampm}`;
+  };
+
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MON_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const tzShort = tz ? tz.replace('America/Chicago', 'CT').replace('America/New_York', 'ET').replace('America/Los_Angeles', 'PT').replace('America/Denver', 'MT').replace('UTC', 'UTC') : '';
+  const tzSuffix = tzShort ? ` ${tzShort}` : '';
+
+  // Parse day-of-week
+  let dayLabel = '';
+  if (dow !== '*') {
+    const days = dow.split(',').map(d => DAY_NAMES[Number(d)]).filter(Boolean);
+    if (days.length === 7) dayLabel = 'Every day';
+    else if (days.length === 5 && !days.includes('Sat') && !days.includes('Sun')) dayLabel = 'Weekdays';
+    else if (days.length === 2 && days.includes('Sat') && days.includes('Sun')) dayLabel = 'Weekends';
+    else dayLabel = days.join(', ');
+  } else if (dom !== '*') {
+    dayLabel = `Day ${dom} of month`;
+  } else {
+    dayLabel = 'Every day';
+  }
+
+  // Time
+  if (min !== '*' && hr !== '*') {
+    return `${dayLabel} at ${fmtTime(hr, min)}${tzSuffix}`;
+  } else if (min !== '*' && hr === '*') {
+    return `Every hour at :${pad(Number(min))}${tzSuffix}`;
+  } else if (min === '*' && hr !== '*') {
+    return `Every minute during ${fmtTime(hr, 0).replace('00 ', '')} hour${tzSuffix}`;
+  }
+  return `${dayLabel}${tzSuffix}`;
+}
+
+// ---------------------------------------------------------------------------
+// Cron jobs — read from cron/jobs.json
+// ---------------------------------------------------------------------------
+function getCronJobs() {
+  const cronPath = path.join(OPENCLAW_STATE, 'cron', 'jobs.json');
+  const raw = parseJsonSafe(readFileSafe(cronPath), null);
+  if (!raw || !Array.isArray(raw.jobs)) return { ok: true, jobs: [] };
+
+  const jobs = raw.jobs.map(j => {
+    const sched = j.schedule || {};
+    let scheduleLabel = '';
+    if (sched.kind === 'cron') {
+      scheduleLabel = cronToHuman(sched.expr, sched.tz);
+    } else if (sched.kind === 'at') {
+      scheduleLabel = 'Once: ' + new Date(sched.at).toLocaleString();
+    } else if (sched.kind === 'every') {
+      const ms = sched.everyMs || 0;
+      const mins = Math.floor(ms / 60000);
+      const hrs = Math.floor(mins / 60);
+      scheduleLabel = hrs > 0 ? `Every ${hrs}h ${mins % 60}m` : `Every ${mins}m`;
+    }
+    const state = j.state || {};
+    return {
+      id: j.id,
+      name: j.name || 'Unnamed',
+      enabled: j.enabled !== false,
+      scheduleKind: sched.kind,
+      scheduleLabel,
+      nextRunAtMs: state.nextRunAtMs || null,
+      lastRunAtMs: state.lastRunAtMs || null,
+      lastStatus: state.lastStatus || null,
+    };
+  });
+
+  // Sort by next run time, show only the next 5
+  const upcoming = jobs
+    .filter(j => j.enabled && j.nextRunAtMs)
+    .sort((a, b) => a.nextRunAtMs - b.nextRunAtMs)
+    .slice(0, 5);
+
+  return { ok: true, jobs: upcoming };
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard — all data in one call
 // ---------------------------------------------------------------------------
 async function getDashboard() {
@@ -378,6 +477,7 @@ async function getDashboard() {
     context: getContext(),
     activity: getRecentActivity(),
     usage: getUsage(),
+    cron: getCronJobs(),
   };
 }
 
@@ -426,6 +526,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/status') {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
+      if (req.method === 'GET' && pathname === '/api/cron') return sendJson(res, 200, getCronJobs());
       if (req.method === 'GET' && pathname === '/api/context') return sendJson(res, 200, getContext());
       if (req.method === 'GET' && pathname === '/api/activity') return sendJson(res, 200, getRecentActivity());
       if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, getUsage());

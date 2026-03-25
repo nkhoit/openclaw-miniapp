@@ -342,11 +342,16 @@
       </div>
     </section>
 
-    <section class="card">
+    <section id="contextSection" class="card" style="display:none">
       <h2>Current Context</h2>
       <div id="contextCard" class="markdown">
         <div class="line muted">Loading NOW.md…</div>
       </div>
+    </section>
+
+    <section id="cronSection" class="card" style="display:none">
+      <h2>Up Next <span style="font-size:11px;font-weight:400;color:var(--hint)">(next 5 cron jobs)</span></h2>
+      <div id="cronList" class="activity-list"></div>
     </section>
 
     <section class="card">
@@ -392,7 +397,13 @@
     }
 
         function renderMarkdown(source) {
+      const section = el('contextSection');
       const container = el('contextCard');
+      if (!source || source === 'NOW.md not found.') {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = '';
       const raw = String(source || '').trim();
       if (!raw) { container.innerHTML = '<div class="muted">NOW.md is empty.</div>'; return; }
 
@@ -517,6 +528,40 @@
       }
     }
 
+    function renderCron(cron) {
+      const section = el('cronSection');
+      const container = el('cronList');
+      if (!cron || !Array.isArray(cron.jobs) || cron.jobs.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = '';
+      container.innerHTML = cron.jobs.map(j => {
+        const next = j.nextRunAtMs ? timeSince2(j.nextRunAtMs) : '—';
+        const statusColor = j.enabled ? 'var(--ok)' : 'var(--hint)';
+        const statusLabel = j.enabled ? (j.lastStatus === 'error' ? '⚠️' : '●') : '○';
+        return `
+          <div class="activity-item">
+            <div class="activity-top">
+              <span class="role" style="color: ${statusColor}">${statusLabel} ${escapeHtml(j.name)}</span>
+              <span class="muted" style="flex-shrink:0">${j.enabled ? 'active' : 'disabled'}</span>
+            </div>
+            <div>${escapeHtml(j.scheduleLabel || j.scheduleKind || '—')} · next: ${escapeHtml(next)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function timeSince2(ts) {
+      const diff = ts - Date.now();
+      if (diff <= 0) return 'now';
+      const secs = Math.floor(diff / 1000);
+      if (secs < 60) return `in ${secs}s`;
+      if (secs < 3600) return `in ${Math.floor(secs / 60)}m`;
+      if (secs < 86400) return `in ${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+      return `in ${Math.floor(secs / 86400)}d`;
+    }
+
     function updateFooter(generatedAt) {
       state.lastGeneratedAt = generatedAt || null;
       const date = generatedAt ? new Date(generatedAt) : null;
@@ -557,6 +602,7 @@
         renderMarkdown(payload.context && payload.context.nowMd);
         renderActivity(payload.activity && payload.activity.messages);
         text('activityError', payload.activity && payload.activity.error ? payload.activity.error : '', true);
+        renderCron(payload.cron);
         updateFooter(payload.generatedAt);
       } catch (error) {
         el('statusDot').className = 'dot err';
