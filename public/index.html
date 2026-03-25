@@ -28,43 +28,54 @@
 
     body {
       margin: 0;
-      padding: 16px;
+      padding: 12px;
       background: var(--bg);
       color: var(--text);
       font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-text-size-adjust: 100%;
     }
 
     .app {
       max-width: 720px;
       margin: 0 auto;
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
 
     .header, .card {
       background: var(--section-bg);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 14px;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+      min-width: 0;
     }
 
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .title-row {
       display: flex;
       align-items: center;
       gap: 10px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .title-row > div {
+      min-width: 0;
+      overflow: hidden;
     }
 
     .avatar {
       width: 36px;
       height: 36px;
+      flex-shrink: 0;
       border-radius: 50%;
       background: linear-gradient(135deg, var(--button), var(--accent));
       display: grid;
@@ -76,12 +87,15 @@
     h1, h2, h3, p { margin: 0; }
 
     h1 {
-      font-size: 18px;
+      font-size: clamp(15px, 4vw, 18px);
       font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     h2 {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       margin-bottom: 10px;
     }
@@ -93,17 +107,20 @@
     .status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       border-radius: 999px;
-      padding: 6px 10px;
+      padding: 5px 10px;
       background: var(--secondary-bg);
       border: 1px solid var(--border);
       white-space: nowrap;
+      flex-shrink: 0;
+      font-size: 13px;
     }
 
     .dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
+      flex-shrink: 0;
       border-radius: 50%;
       background: var(--warn);
     }
@@ -114,25 +131,36 @@
     .meta-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      gap: 8px;
+    }
+
+    @media (max-width: 320px) {
+      .meta-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     .metric {
       background: var(--secondary-bg);
-      border-radius: 14px;
-      padding: 10px;
+      border-radius: 12px;
+      padding: 9px 10px;
       border: 1px solid var(--border);
+      min-width: 0;
+      overflow: hidden;
     }
 
     .metric-label {
       color: var(--hint);
-      font-size: 12px;
-      margin-bottom: 4px;
+      font-size: 11px;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
 
     .metric-value {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 700;
+      overflow-wrap: anywhere;
       word-break: break-word;
     }
 
@@ -142,10 +170,48 @@
     .progress-label-row {
       display: flex;
       justify-content: space-between;
-      gap: 10px;
+      gap: 6px;
       margin-bottom: 6px;
       font-size: 12px;
       color: var(--hint);
+      flex-wrap: wrap;
+    }
+
+    .progress-label-row span:last-child {
+      text-align: right;
+      flex-shrink: 0;
+      max-width: 60%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stat-row {
+      margin-top: 10px;
+    }
+
+    .stat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--hint);
+      flex-wrap: wrap;
+    }
+
+    .stat-header span:first-child {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stat-header span:last-child {
+      flex-shrink: 0;
+      text-align: right;
     }
 
     .bar {
@@ -168,8 +234,11 @@
     .markdown {
       max-height: 300px;
       overflow: auto;
+      -webkit-overflow-scrolling: touch;
       font-size: 13px;
       line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .markdown h1, .markdown h2, .markdown h3 {
       font-weight: 700;
@@ -202,16 +271,26 @@
 
     .activity-list {
       display: grid;
-      gap: 8px;
-      max-height: 300px;
+      gap: 7px;
+      max-height: 320px;
       overflow: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .activity-item {
       background: var(--secondary-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 10px;
+      padding: 9px 10px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .activity-item > div:last-child {
+      font-size: 12px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      color: var(--hint);
     }
 
     .markdown .h1, .markdown .h2, .markdown .h3 {
@@ -234,9 +313,11 @@
     .activity-top {
       display: flex;
       justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 6px;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 4px;
       font-size: 12px;
+      flex-wrap: wrap;
     }
 
     .role {
@@ -244,6 +325,10 @@
       letter-spacing: 0.04em;
       color: var(--accent);
       font-weight: 700;
+      overflow-wrap: anywhere;
+      word-break: break-all;
+      min-width: 0;
+      flex: 1;
     }
 
     .error {
@@ -342,6 +427,8 @@
       </div>
     </section>
 
+    <div id="cardsContainer"></div>
+
     <section id="contextSection" class="card" style="display:none">
       <h2>Current Context</h2>
       <div id="contextCard" class="markdown">
@@ -396,14 +483,14 @@
         .replace(/'/g, '&#39;');
     }
 
-        function renderMarkdown(source) {
+        function renderMarkdown(source, container) {
+      if (!container) container = el('contextCard');
       const section = el('contextSection');
-      const container = el('contextCard');
       if (!source || source === 'NOW.md not found.') {
-        section.style.display = 'none';
+        if (section) section.style.display = 'none';
         return;
       }
-      section.style.display = '';
+      if (section) section.style.display = '';
       const raw = String(source || '').trim();
       if (!raw) { container.innerHTML = '<div class="muted">NOW.md is empty.</div>'; return; }
 
@@ -450,6 +537,22 @@
       if (inList) html += '</ul>';
       container.innerHTML = html;
     }
+
+    function renderCards(cards) {
+      const container = el('cardsContainer');
+      if (!Array.isArray(cards) || cards.length === 0) {
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = cards.map((card, i) => 
+        `<section class="card"><h2>${esc(card.name)}</h2><div class="markdown" id="card-md-${i}"></div></section>`
+      ).join('');
+      cards.forEach((card, i) => {
+        renderMarkdown(card.content, document.getElementById(`card-md-${i}`));
+      });
+    }
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
     function renderActivity(messages) {
       const container = el('activityList');
@@ -599,7 +702,7 @@
 
         applyHeader(payload.status, tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null);
         applySystem(payload.system);
-        renderMarkdown(payload.context && payload.context.nowMd);
+        renderCards(payload.cards || []);
         renderActivity(payload.activity && payload.activity.messages);
         text('activityError', payload.activity && payload.activity.error ? payload.activity.error : '', true);
         renderCron(payload.cron);

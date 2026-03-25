@@ -107,6 +107,22 @@ Create `IDENTITY.md` in your OpenClaw workspace:
 
 The dashboard will show your agent's name and emoji in the header.
 
+### Workspace File Cards
+
+Show any workspace file as a dashboard card by setting `CARDS` in your `.env`:
+
+```env
+CARDS=NOW.md
+```
+
+Multiple files, comma-separated:
+
+```env
+CARDS=NOW.md,TASKS.md,memory/2026-03-24.md
+```
+
+Each file gets its own card with the filename as the title and contents rendered as markdown. Files are resolved relative to `WORKSPACE`. If a file doesn't exist, it's silently skipped. If `CARDS` is not set, no file cards are shown.
+
 ### Adding Widgets
 
 The dashboard is a single HTML file. To add a widget:

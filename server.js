@@ -77,6 +77,12 @@ function runCommand(file, args, timeout = 3000) {
 // Version — read from openclaw's package.json (instant, no subprocess)
 // ---------------------------------------------------------------------------
 function getOpenClawVersion() {
+  // Try npm-global path (common on Linux with custom npm prefix)
+  const npmGlobalPath = path.join(os.homedir(), '.npm-global', 'lib', 'node_modules', 'openclaw', 'package.json');
+  if (existsSync(npmGlobalPath)) {
+    const pkg = parseJsonSafe(readFileSafe(npmGlobalPath), null);
+    if (pkg?.version) return pkg.version;
+  }
   // Try known nvm paths
   const nvmDir = path.join(os.homedir(), '.nvm', 'versions', 'node');
   try {
@@ -89,7 +95,7 @@ function getOpenClawVersion() {
       }
     }
   } catch {}
-  // Try global
+  // Try global require resolution
   try {
     const globalPkg = require.resolve('openclaw/package.json');
     const pkg = parseJsonSafe(readFileSafe(globalPkg), null);
@@ -181,8 +187,20 @@ async function getGatewayUptime() {
 // Sessions — read sessions.json directly (instant, no CLI)
 // ---------------------------------------------------------------------------
 function getSessionData() {
-  const sessionsPath = path.join(OPENCLAW_STATE, 'agents', 'default', 'sessions', 'sessions.json');
-  const raw = parseJsonSafe(readFileSafe(sessionsPath), null);
+  // Find the agent with the most sessions
+  const agentsDir = path.join(OPENCLAW_STATE, 'agents');
+  let bestPath = null, bestCount = 0;
+  try {
+    for (const agent of readdirSync(agentsDir)) {
+      const sp = path.join(agentsDir, agent, 'sessions', 'sessions.json');
+      if (!existsSync(sp)) continue;
+      const raw = parseJsonSafe(readFileSafe(sp), null);
+      const count = raw && typeof raw === 'object' ? Object.keys(raw).length : 0;
+      if (count > bestCount) { bestPath = sp; bestCount = count; }
+    }
+  } catch {}
+  if (!bestPath) return { count: 0, model: 'unknown', sessions: [] };
+  const raw = parseJsonSafe(readFileSafe(bestPath), null);
   if (!raw) return { count: 0, model: 'unknown', sessions: [] };
 
   // sessions.json is a flat object keyed by session key
@@ -318,11 +336,18 @@ function getIdentity() {
 }
 
 // ---------------------------------------------------------------------------
-// Context — read NOW.md
+// Workspace cards — configurable via CARDS env var (comma-separated filenames)
 // ---------------------------------------------------------------------------
-function getContext() {
-  const nowPath = path.join(WORKSPACE, 'NOW.md');
-  return { workspace: WORKSPACE, nowPath, nowMd: readFileSafe(nowPath, 'NOW.md not found.') };
+const CARD_FILES = String(process.env.CARDS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function getCards() {
+  return CARD_FILES.map(file => {
+    const filePath = path.join(WORKSPACE, file);
+    const content = readFileSafe(filePath, '');
+    const name = path.basename(file, path.extname(file));
+    return { file, name, content: content || null };
+  }).filter(c => c.content !== null);
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +499,7 @@ async function getDashboard() {
     generatedAt: new Date().toISOString(),
     status,
     system,
-    context: getContext(),
+    cards: getCards(),
     activity: getRecentActivity(),
     usage: getUsage(),
     cron: getCronJobs(),
@@ -527,6 +552,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
       if (req.method === 'GET' && pathname === '/api/cron') return sendJson(res, 200, getCronJobs());
+      if (req.method === 'GET' && pathname === '/api/cards') return sendJson(res, 200, getCards());
       if (req.method === 'GET' && pathname === '/api/context') return sendJson(res, 200, getContext());
       if (req.method === 'GET' && pathname === '/api/activity') return sendJson(res, 200, getRecentActivity());
       if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, getUsage());
