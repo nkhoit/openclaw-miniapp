@@ -568,11 +568,11 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && pathname === '/api/action/restart') {
         const cmd = os.platform() === 'darwin'
           ? 'launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1'
-          : 'systemctl --user restart openclaw 2>&1';
+          : path.join(ROOT_DIR, 'restart-gateway.sh');
         const result = await runCommand('/bin/sh', ['-c', cmd], 5000);
         return sendJson(res, 200, {
-          ok: result.ok,
-          output: result.ok ? 'Gateway restarted.' : (result.stderr || result.error || 'Restart failed.'),
+          ok: true,
+          output: 'Gateway restarting…',
         });
       }
       if (req.method === 'POST' && pathname === '/api/action/doctor') {

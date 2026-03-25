@@ -769,6 +769,10 @@
         if (data.ok) {
           btn.textContent = action === 'restart' ? '✓ Restarted' : '✓ Done';
           setTimeout(() => { btn.textContent = origLabel; }, 2000);
+          if (data.output) {
+            output.style.display = '';
+            output.textContent = data.output;
+          }
           if (action === 'restart') setTimeout(loadDashboard, 3000);
         } else {
           btn.textContent = origLabel;
