@@ -57,6 +57,7 @@
       justify-content: space-between;
       gap: 8px;
       flex-wrap: wrap;
+      row-gap: 10px;
     }
 
     .title-row {
@@ -348,6 +349,42 @@
     }
 
     a { color: var(--link); }
+
+    .action-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .action-btn {
+      flex: 1;
+      padding: 9px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--secondary-bg);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .action-btn:active { opacity: 0.7; }
+    .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .action-output {
+      margin-top: 8px;
+      background: var(--secondary-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 150px;
+      overflow-y: auto;
+      color: var(--hint);
+    }
   </style>
 </head>
 <body>
@@ -364,6 +401,11 @@
         <span id="statusDot" class="dot"></span>
         <span id="statusText">Checking</span>
       </div>
+      <div class="action-row" style="width:100%">
+        <button id="btnRestart" class="action-btn" onclick="runAction('restart')">⟳ Restart Gateway</button>
+        <button id="btnDoctor" class="action-btn" onclick="runAction('doctor')">🩺 Run Doctor</button>
+      </div>
+      <div id="actionOutput" class="action-output" style="display:none;width:100%"></div>
     </section>
 
     <section class="card">
@@ -700,6 +742,34 @@
         text('statusText', 'Error');
         text('statusError', error.message || String(error));
         text('footer', 'Dashboard load failed');
+      }
+    }
+
+    async function runAction(action) {
+      if (action === 'restart') {
+        if (!confirm('Restart the gateway? Active sessions may be interrupted.')) return;
+      }
+      if (action === 'doctor') {
+        if (!confirm('Run doctor --fix? This may restart the gateway.')) return;
+      }
+      const btn = el(action === 'restart' ? 'btnRestart' : 'btnDoctor');
+      const output = el('actionOutput');
+      btn.disabled = true;
+      output.style.display = '';
+      output.textContent = action === 'restart' ? 'Restarting gateway…' : 'Running doctor --fix…';
+      try {
+        const initData = tg && tg.initData ? tg.initData : '';
+        const res = await fetch('api/action/' + action, {
+          method: 'POST',
+          headers: { 'X-Telegram-Init-Data': initData },
+        });
+        const data = await res.json();
+        output.textContent = data.output || data.error || 'Done.';
+      } catch (e) {
+        output.textContent = 'Error: ' + (e.message || String(e));
+      } finally {
+        btn.disabled = false;
+        if (action === 'restart') setTimeout(loadDashboard, 3000);
       }
     }
 

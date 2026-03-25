@@ -551,9 +551,33 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/status') {
         return sendJson(res, 200, { generatedAt: new Date().toISOString(), status: await getOpenClawStatus(), system: await getSystemStats() });
       }
+      if (req.method === 'POST' && pathname === '/api/action/restart') {
+        // Platform-aware restart via service manager
+        const cmds = [
+          // macOS: launchctl
+          `launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1`,
+          // Linux: systemd (user)
+          `systemctl --user restart openclaw 2>&1`,
+          // Linux: systemd (system)
+          `sudo systemctl restart openclaw 2>&1`,
+        ];
+        let output = '';
+        for (const cmd of cmds) {
+          const result = await runCommand('/bin/sh', ['-c', cmd], 5000);
+          if (result.ok) {
+            output = result.stdout || 'Gateway restarting…';
+            break;
+          }
+          output = result.stderr || result.error || '';
+        }
+        return sendJson(res, 200, { output });
+      }
+      if (req.method === 'POST' && pathname === '/api/action/doctor') {
+        const result = await runCommand(OPENCLAW_BIN, ['doctor', '--fix'], 30000);
+        return sendJson(res, 200, { output: (result.stdout + '\n' + result.stderr).trim() });
+      }
       if (req.method === 'GET' && pathname === '/api/cron') return sendJson(res, 200, getCronJobs());
       if (req.method === 'GET' && pathname === '/api/cards') return sendJson(res, 200, getCards());
-      if (req.method === 'GET' && pathname === '/api/context') return sendJson(res, 200, getContext());
       if (req.method === 'GET' && pathname === '/api/activity') return sendJson(res, 200, getRecentActivity());
       if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, getUsage());
       if (req.method === 'GET' && pathname === '/api/dashboard') return sendJson(res, 200, await getDashboard());
