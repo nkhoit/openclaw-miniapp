@@ -371,6 +371,85 @@
     .action-btn:active { opacity: 0.7; }
     .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    .metric-value.tappable {
+      cursor: pointer;
+      color: var(--link);
+      transition: opacity 0.15s;
+    }
+    .metric-value.tappable:active { opacity: 0.6; }
+
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--section-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 1000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      animation: toastIn 0.2s ease-out;
+      white-space: nowrap;
+    }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+    .update-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 999;
+      display: grid;
+      place-items: center;
+      animation: fadeIn 0.15s ease-out;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .update-modal {
+      background: var(--section-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      width: calc(100% - 48px);
+      max-width: 340px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    .update-modal h3 { font-size: 16px; margin-bottom: 8px; }
+    .update-modal p { color: var(--hint); font-size: 13px; margin-bottom: 16px; }
+    .update-modal .version-arrow { color: var(--accent); font-weight: 700; font-size: 15px; margin-bottom: 16px; }
+    .update-modal .btn-row { display: flex; gap: 8px; }
+    .update-modal .btn-row button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .update-modal .btn-cancel { background: var(--secondary-bg); color: var(--text); }
+    .update-modal .btn-update { background: var(--button); color: var(--button-text); border-color: var(--button); }
+    .update-modal .btn-update:disabled { opacity: 0.5; cursor: not-allowed; }
+    .update-modal .update-log {
+      margin-top: 12px;
+      background: var(--secondary-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 120px;
+      overflow-y: auto;
+      color: var(--hint);
+      text-align: left;
+    }
+
     .action-output {
       margin-top: 8px;
       background: var(--secondary-bg);
@@ -413,7 +492,7 @@
       <div class="meta-grid">
         <div class="metric">
           <div class="metric-label">Version</div>
-          <div id="versionValue" class="metric-value">—</div>
+          <div id="versionValue" class="metric-value tappable" onclick="checkForUpdate()">—</div>
         </div>
         <div class="metric">
           <div class="metric-label">Model</div>
@@ -781,6 +860,106 @@
         output.textContent = 'Error: ' + (e.message || String(e));
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    // --- Version check & update ---
+    function showToast(msg, duration) {
+      const existing = document.querySelector('.toast');
+      if (existing) existing.remove();
+      const t = document.createElement('div');
+      t.className = 'toast';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), duration || 3000);
+    }
+
+    function removeUpdateModal() {
+      const overlay = document.querySelector('.update-overlay');
+      if (overlay) overlay.remove();
+    }
+
+    function showUpdateModal(current, latest) {
+      removeUpdateModal();
+      const overlay = document.createElement('div');
+      overlay.className = 'update-overlay';
+      overlay.innerHTML = `
+        <div class="update-modal">
+          <h3>Update Available</h3>
+          <div class="version-arrow">v${esc(current)} → v${esc(latest)}</div>
+          <p>A newer version of OpenClaw is available. Update now and restart the gateway?</p>
+          <div class="btn-row">
+            <button class="btn-cancel" id="updateCancel">Cancel</button>
+            <button class="btn-update" id="updateConfirm">Update Now</button>
+          </div>
+          <div class="update-log" id="updateLog" style="display:none"></div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      document.getElementById('updateCancel').onclick = removeUpdateModal;
+      document.getElementById('updateConfirm').onclick = () => performUpdate();
+      overlay.addEventListener('click', e => { if (e.target === overlay) removeUpdateModal(); });
+    }
+
+    async function checkForUpdate() {
+      const vEl = el('versionValue');
+      const origText = vEl.textContent;
+      vEl.textContent = 'Checking…';
+      vEl.style.pointerEvents = 'none';
+      try {
+        const initData = tg && tg.initData ? tg.initData : '';
+        const res = await fetch('api/version/check', {
+          headers: { 'X-Telegram-Init-Data': initData },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Check failed');
+        if (data.updateAvailable) {
+          vEl.textContent = origText;
+          showUpdateModal(data.current, data.latest);
+        } else {
+          vEl.textContent = origText;
+          showToast('Up to date! (v' + data.current + ')');
+        }
+      } catch (e) {
+        vEl.textContent = origText;
+        showToast('Error: ' + (e.message || String(e)), 4000);
+      } finally {
+        vEl.style.pointerEvents = '';
+      }
+    }
+
+    async function performUpdate() {
+      const btn = document.getElementById('updateConfirm');
+      const cancel = document.getElementById('updateCancel');
+      const log = document.getElementById('updateLog');
+      btn.disabled = true;
+      btn.textContent = 'Updating…';
+      cancel.style.display = 'none';
+      log.style.display = '';
+      log.textContent = 'Installing openclaw@latest…\n';
+      try {
+        const initData = tg && tg.initData ? tg.initData : '';
+        const res = await fetch('api/version/update', {
+          method: 'POST',
+          headers: { 'X-Telegram-Init-Data': initData },
+        });
+        const data = await res.json();
+        if (data.ok) {
+          log.textContent += (data.output || 'Installed.') + '\n';
+          log.textContent += data.restartOk ? 'Gateway restarted.' : ('Restart: ' + (data.restartOutput || 'unknown'));
+          btn.textContent = '✓ Updated';
+          setTimeout(() => { removeUpdateModal(); loadDashboard(); }, 2000);
+        } else {
+          log.textContent += data.output || 'Update failed.';
+          btn.textContent = 'Failed';
+          cancel.style.display = '';
+          setTimeout(() => { btn.disabled = false; btn.textContent = 'Retry'; }, 2000);
+        }
+      } catch (e) {
+        log.textContent += 'Error: ' + (e.message || String(e));
+        btn.textContent = 'Failed';
+        cancel.style.display = '';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Retry'; }, 2000);
       }
     }
 

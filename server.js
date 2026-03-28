@@ -580,6 +580,61 @@ const server = http.createServer(async (req, res) => {
         const clean = (result.stdout + '\n' + result.stderr).replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
         return sendJson(res, 200, { ok: result.ok, output: clean });
       }
+      if (req.method === 'GET' && pathname === '/api/version/check') {
+        const current = OPENCLAW_VERSION;
+        // Fetch latest version from npm registry (zero-dependency HTTP GET)
+        const latest = await new Promise(resolve => {
+          const npmUrl = new URL('https://registry.npmjs.org/openclaw/latest');
+          const proto = require('https');
+          const r = proto.get(npmUrl, { timeout: 5000 }, resp => {
+            let body = '';
+            resp.on('data', chunk => body += chunk);
+            resp.on('end', () => {
+              const pkg = parseJsonSafe(body, null);
+              resolve(pkg && pkg.version ? pkg.version : null);
+            });
+          });
+          r.on('error', () => resolve(null));
+          r.on('timeout', () => { r.destroy(); resolve(null); });
+        });
+        if (!latest) {
+          return sendJson(res, 502, { error: 'Could not reach npm registry' });
+        }
+        return sendJson(res, 200, {
+          current,
+          latest,
+          updateAvailable: current !== 'unknown' && latest !== current,
+        });
+      }
+      if (req.method === 'POST' && pathname === '/api/version/update') {
+        // Find npm binary
+        const npmBin = (() => {
+          const candidates = [
+            path.join(path.dirname(process.execPath), 'npm'),
+            path.join(os.homedir(), '.npm-global', 'bin', 'npm'),
+          ];
+          for (const c of candidates) { if (existsSync(c)) return c; }
+          return 'npm';
+        })();
+        const install = await runCommand(npmBin, ['install', '-g', 'openclaw@latest'], 60000);
+        if (!install.ok) {
+          return sendJson(res, 200, {
+            ok: false,
+            output: (install.stderr || install.error || 'Install failed').trim(),
+          });
+        }
+        // Restart gateway (reuse existing restart logic)
+        const restartCmd = os.platform() === 'darwin'
+          ? 'launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway 2>&1'
+          : 'systemctl --user restart openclaw 2>&1';
+        const restart = await runCommand('/bin/sh', ['-c', restartCmd], 5000);
+        return sendJson(res, 200, {
+          ok: true,
+          output: (install.stdout || '').trim(),
+          restartOk: restart.ok,
+          restartOutput: restart.ok ? 'Gateway restarted.' : (restart.stderr || restart.error || 'Restart failed.'),
+        });
+      }
       if (req.method === 'GET' && pathname === '/api/cron') return sendJson(res, 200, getCronJobs());
       if (req.method === 'GET' && pathname === '/api/cards') return sendJson(res, 200, getCards());
       if (req.method === 'GET' && pathname === '/api/activity') return sendJson(res, 200, getRecentActivity());
