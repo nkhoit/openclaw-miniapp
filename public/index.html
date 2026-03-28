@@ -371,6 +371,97 @@
     .action-btn:active { opacity: 0.7; }
     .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    .metric-clickable {
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .metric-clickable:active { opacity: 0.7; }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 1000;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-sheet {
+      width: 100%;
+      max-width: 480px;
+      max-height: 70vh;
+      background: var(--section-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      display: flex;
+      flex-direction: column;
+      transform: translateY(100%);
+      transition: transform 0.25s ease-out;
+      overflow: hidden;
+    }
+    .modal-overlay.open .modal-sheet {
+      transform: translateY(0);
+    }
+
+    .modal-handle {
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--hint);
+      opacity: 0.4;
+      margin: 10px auto 6px;
+      flex-shrink: 0;
+    }
+
+    .modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      text-align: center;
+      padding: 4px 12px 10px;
+      flex-shrink: 0;
+    }
+
+    .model-list {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 0 10px 16px;
+      flex: 1;
+    }
+
+    .model-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--secondary-bg);
+      border: 1px solid var(--border);
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: background 0.12s;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .model-item:active { opacity: 0.7; }
+    .model-item.active {
+      border-color: var(--button);
+      background: color-mix(in srgb, var(--button) 12%, var(--secondary-bg));
+    }
+    .model-item .check {
+      color: var(--button);
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
     .action-output {
       margin-top: 8px;
       background: var(--secondary-bg);
@@ -415,8 +506,8 @@
           <div class="metric-label">Version</div>
           <div id="versionValue" class="metric-value">—</div>
         </div>
-        <div class="metric">
-          <div class="metric-label">Model</div>
+        <div class="metric metric-clickable" id="modelMetric" onclick="openModelSelector()">
+          <div class="metric-label">Model ✎</div>
           <div id="modelValue" class="metric-value">—</div>
         </div>
         <div class="metric">
@@ -485,6 +576,16 @@
     </section>
 
     <div id="footer" class="footer">Waiting for data…</div>
+  </div>
+
+  <div id="modelOverlay" class="modal-overlay" onclick="closeModelSelector(event)">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Select Model</div>
+      <div id="modelList" class="model-list">
+        <div class="muted" style="text-align:center;padding:20px;">Loading models…</div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -781,6 +882,78 @@
         output.textContent = 'Error: ' + (e.message || String(e));
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Model Selector
+    // -----------------------------------------------------------------------
+    let modelSelectorOpen = false;
+
+    async function openModelSelector() {
+      const overlay = el('modelOverlay');
+      const list = el('modelList');
+      const initData = tg && tg.initData ? tg.initData : '';
+      if (!initData) return;
+
+      list.innerHTML = '<div class="muted" style="text-align:center;padding:20px;">Loading models…</div>';
+      overlay.classList.add('open');
+      modelSelectorOpen = true;
+
+      try {
+        const res = await fetch('api/models', {
+          headers: { 'X-Telegram-Init-Data': initData },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load models');
+
+        const currentModel = el('modelValue').textContent.trim();
+        const currentConfig = data.current || '';
+
+        list.innerHTML = data.models.map(m => {
+          const name = typeof m === 'string' ? m : (m.id || m.name || String(m));
+          const isActive = name === currentModel || name === currentConfig;
+          return `<div class="model-item${isActive ? ' active' : ''}" onclick="selectModel('${escapeHtml(name)}')">
+            <span>${escapeHtml(name)}</span>
+            ${isActive ? '<span class="check">✓</span>' : ''}
+          </div>`;
+        }).join('');
+      } catch (err) {
+        list.innerHTML = `<div class="error" style="text-align:center;padding:20px;">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function closeModelSelector(e) {
+      if (e && e.target !== el('modelOverlay')) return;
+      el('modelOverlay').classList.remove('open');
+      modelSelectorOpen = false;
+    }
+
+    async function selectModel(model) {
+      const initData = tg && tg.initData ? tg.initData : '';
+      if (!initData) return;
+
+      // Optimistic UI update
+      text('modelValue', model);
+      closeModelSelector();
+
+      try {
+        const res = await fetch('api/model', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Telegram-Init-Data': initData,
+          },
+          body: JSON.stringify({ model }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          text('statusError', data.message || 'Failed to set model');
+          loadDashboard(); // revert display
+        }
+      } catch (err) {
+        text('statusError', 'Failed to set model: ' + err.message);
+        loadDashboard(); // revert display
       }
     }
 
