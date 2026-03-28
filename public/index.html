@@ -1032,8 +1032,10 @@
       } catch (err) {
         text('statusError', 'Failed to set model: ' + err.message);
         loadDashboard(); // revert display
+      }
+    }
 
-// --- Version check & update ---
+    // --- Version check & update ---
     function showToast(msg, duration) {
       const existing = document.querySelector('.toast');
       if (existing) existing.remove();
