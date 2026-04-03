@@ -108,7 +108,11 @@ function getOpenClawVersion() {
   return 'unknown';
 }
 
-const OPENCLAW_VERSION = getOpenClawVersion();
+// Read version fresh each time (not cached at startup)
+// so it reflects updates without needing a server restart
+function getOpenClawVersionFresh() {
+  return getOpenClawVersion();
+}
 
 // Resolve openclaw binary path for action endpoints (doctor, etc.)
 const OPENCLAW_BIN = (() => {
@@ -238,7 +242,7 @@ async function getOpenClawStatus() {
   return {
     ok: true,
     online: gateway.online,
-    version: OPENCLAW_VERSION,
+    version: getOpenClawVersionFresh(),
     model: sessionData.model,
     uptime: uptime || null,
     activeSessions: sessionData.count,
@@ -707,7 +711,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: result.ok, output: clean });
       }
       if (req.method === 'GET' && pathname === '/api/version/check') {
-        const current = OPENCLAW_VERSION;
+        const current = getOpenClawVersionFresh();
         // Fetch latest version from npm registry (zero-dependency HTTP GET)
         const latest = await new Promise(resolve => {
           const npmUrl = new URL('https://registry.npmjs.org/openclaw/latest');
