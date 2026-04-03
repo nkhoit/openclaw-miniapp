@@ -508,131 +508,8 @@ function getCronJobs() {
   return { ok: true, jobs: upcoming };
 }
 
-// ---------------------------------------------------------------------------
-// YAML mini-parser (zero-dependency, handles simple key: value and lists)
-// ---------------------------------------------------------------------------
-function parseSimpleYaml(text) {
-  const result = {};
-  if (!text) return result;
-  let currentKey = null;
-  let currentList = null;
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trimEnd();
-    if (!line || line.startsWith('#')) continue;
-    // List item under a key
-    const listMatch = line.match(/^\s+-\s+(.*)/);
-    if (listMatch && currentKey) {
-      if (!currentList) { currentList = []; result[currentKey] = currentList; }
-      currentList.push(listMatch[1].trim().replace(/^["']|["']$/g, ''));
-      continue;
-    }
-    // Key: value
-    const kvMatch = line.match(/^([A-Za-z_][\w.-]*)\s*:\s*(.*)/);
-    if (kvMatch) {
-      currentKey = kvMatch[1];
-      const val = kvMatch[2].trim().replace(/^["']|["']$/g, '');
-      currentList = null;
-      if (val) {
-        result[currentKey] = val;
-      }
-      continue;
-    }
-    currentList = null;
-  }
-  return result;
-}
 
-const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'config.yaml');
 
-const DEFAULT_MODELS = [
-  'anthropic/claude-sonnet-4-6',
-  'anthropic/claude-opus-4-6',
-  'together/zai-org/GLM-4.7',
-  'google/gemini-2.5-pro',
-  'openai/gpt-4.1',
-];
-
-// ---------------------------------------------------------------------------
-// Models — read available models from gateway, config, or fallback
-// ---------------------------------------------------------------------------
-function getModelsFromConfig() {
-  const raw = readFileSafe(OPENCLAW_CONFIG_PATH, '');
-  const cfg = parseSimpleYaml(raw);
-  // Look for a models list or model_aliases
-  if (Array.isArray(cfg.models) && cfg.models.length > 0) return cfg.models;
-  if (Array.isArray(cfg.model_aliases) && cfg.model_aliases.length > 0) return cfg.model_aliases;
-  return null;
-}
-
-function getCurrentModelFromConfig() {
-  const raw = readFileSafe(OPENCLAW_CONFIG_PATH, '');
-  const cfg = parseSimpleYaml(raw);
-  return cfg.model || null;
-}
-
-async function getModelsFromGateway() {
-  return new Promise(resolve => {
-    const url = new URL('/api/models', GATEWAY_URL);
-    const req = http.get(url, { timeout: 2000 }, res => {
-      let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
-        if (res.statusCode !== 200) return resolve(null);
-        const data = parseJsonSafe(body, null);
-        if (Array.isArray(data)) return resolve(data);
-        if (data && Array.isArray(data.models)) return resolve(data.models);
-        if (data && Array.isArray(data.data)) {
-          // OpenAI-compatible format
-          return resolve(data.data.map(m => m.id || m.name || m).filter(Boolean));
-        }
-        resolve(null);
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-  });
-}
-
-async function getAvailableModels() {
-  // Try gateway first
-  const gatewayModels = await getModelsFromGateway();
-  if (gatewayModels && gatewayModels.length > 0) {
-    return { source: 'gateway', models: gatewayModels };
-  }
-  // Try config
-  const configModels = getModelsFromConfig();
-  if (configModels && configModels.length > 0) {
-    return { source: 'config', models: configModels };
-  }
-  // Fallback
-  return { source: 'default', models: DEFAULT_MODELS };
-}
-
-// ---------------------------------------------------------------------------
-// Set model — via CLI or config file
-// ---------------------------------------------------------------------------
-async function setModel(model) {
-  // Try openclaw CLI first
-  const cliResult = await runCommand(OPENCLAW_BIN, ['config', 'set', 'model', model], 5000);
-  if (cliResult.ok) {
-    return { ok: true, method: 'cli', message: `Model set to ${model}` };
-  }
-  // Fallback: edit config.yaml directly
-  try {
-    let raw = readFileSafe(OPENCLAW_CONFIG_PATH, '');
-    if (raw.match(/^model\s*:/m)) {
-      // Replace existing model line
-      raw = raw.replace(/^model\s*:.*$/m, `model: ${model}`);
-    } else {
-      // Append model line
-      raw = raw.trimEnd() + '\nmodel: ' + model + '\n';
-    }
-    fs.writeFileSync(OPENCLAW_CONFIG_PATH, raw, 'utf8');
-    return { ok: true, method: 'config-file', message: `Model set to ${model}` };
-  } catch (err) {
-    return { ok: false, method: 'none', message: `Failed to set model: ${err.message}` };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Dashboard — all data in one call
@@ -770,25 +647,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/activity') return sendJson(res, 200, getRecentActivity());
       if (req.method === 'GET' && pathname === '/api/usage') return sendJson(res, 200, getUsage());
       if (req.method === 'GET' && pathname === '/api/dashboard') return sendJson(res, 200, await getDashboard());
-      if (req.method === 'GET' && pathname === '/api/models') {
-        const result = await getAvailableModels();
-        const current = getCurrentModelFromConfig();
-        return sendJson(res, 200, { ...result, current });
-      }
-      if (req.method === 'POST' && pathname === '/api/model') {
-        const body = await new Promise((resolve, reject) => {
-          let data = '';
-          req.on('data', chunk => { data += chunk; if (data.length > 4096) reject(new Error('Body too large')); });
-          req.on('end', () => resolve(data));
-          req.on('error', reject);
-        });
-        const parsed = parseJsonSafe(body, null);
-        if (!parsed || typeof parsed.model !== 'string' || !parsed.model.trim()) {
-          return sendJson(res, 400, { error: 'Missing "model" in request body' });
-        }
-        const result = await setModel(parsed.model.trim());
-        return sendJson(res, result.ok ? 200 : 500, result);
-      }
+
       return sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
       console.error('API error:', pathname, error);
